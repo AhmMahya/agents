@@ -1,88 +1,80 @@
+import sqlite3
 import json
-import os
-import requests
-from dotenv import load_dotenv
 
-load_dotenv(override=True)
+class DataBase:
+    def __init__(self) -> None:
+        self.db_name = "Contacts_DB"
+        self.table_name = "contacts"
+        self.connection = sqlite3.connect(self.db_name)
 
-pushover_user = os.getenv("PUSHOVER_USER")
-pushover_token = os.getenv("PUSHOVER_TOKEN")
+        cursor = self.connection.cursor()
+        cursor.execute(
+            f"CREATE TABLE IF NOT EXISTS {self.table_name} (id INTEGER, name TEXT, email TEXT)"
+        )
+        self.connection.commit()
 
-pushover_url = "https://api.pushover.net/1/messages.json"
-
-
-def push(text):
-    requests.post(
-        pushover_url,
-        data={
-            "token": pushover_token,
-            "user": pushover_user,
-            "message": text,
-        },
-    )
-
-
-def record_user_details(email, name="Name not provided", notes="not provided"):
-    push(f"Recording interest from {name} with email {email} and notes {notes}")
-    return "OK"
+    def add_contact(self, email, name="unknown"):
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(
+                        f"INSERT INTO {self.table_name} (name, email) VALUES (?, ?)",
+                        (name, email)
+                    )
+            self.connection.commit()
+            return "Ok"
+        except Exception as e:
+            return "not inserted"
 
 
 def record_unknown_question(question):
-    push(f"Recording {question} asked that I couldn't answer")
-    return "OK"
+    with open("unknown_questions.txt", "a", unicode="utf-8") as f:
+        f.write(question + " /n")
+    return "Ok"
+   
 
+db = DataBase()
 
-record_user_details_json = {
-    "name": "record_user_details",
-    "description": "Use this tool to record that a user is interested in being in touch and provided an email address",
+tools_add_contact_json = {
+    "name": "add_contact",
+    "description": "Use this tool to record an email of the user if it provided",
     "parameters": {
         "type": "object",
-        "properties": {
-            "email": {"type": "string", "description": "The email address of this user"},
-            "name": {"type": "string", "description": "The user's name, if they provided it"},
-            "notes": {
-                "type": "string",
-                "description": "Any additional info about the conversation that's worth recording to give context",
-            },
-        },
-        "required": ["email"],
-        "additionalProperties": False,
+        "properties":{
+            "name": {"type": "string", "description": "The name of the user if provided"},
+            "email": {"type": "string", "description": "The email address of the user"}
+        }
     },
+    "required": "email",
+    "additionalProperties": False
 }
 
-record_unknown_question_json = {
+tools_record_unknown_question_json = {
     "name": "record_unknown_question",
-    "description": "Always use this tool to record any question that couldn't be answered as you didn't know the answer",
+    "description": "Use this tool to record a question that you dob't know about it",
     "parameters": {
         "type": "object",
-        "properties": {
-            "question": {"type": "string", "description": "The question that couldn't be answered"},
-        },
-        "required": ["question"],
-        "additionalProperties": False,
+        "properties":{
+            "question": {"type": "string", "description": "The question you can not answer it"},
+        }
     },
+    "required": "question",
+    "additionalProperties": False
 }
 
-tools = [
-    {"type": "function", "function": record_user_details_json},
-    {"type": "function", "function": record_unknown_question_json},
-]
+tools = [{"type": "function", "function": tools_add_contact_json},
+         {"type": "function", "function": tools_record_unknown_question_json}]
 
-tool_map = {
-    "record_user_details": record_user_details,
-    "record_unknown_question": record_unknown_question,
+tools_map = {
+    "add_contact": db.add_contact,
+    "record_unknown_question": record_unknown_question
 }
-
 
 def handle_tool_calls(tool_calls):
     results = []
     for tool_call in tool_calls:
         tool_name = tool_call.function.name
         arguments = json.loads(tool_call.function.arguments)
-        print(f"Tool called: {tool_name}", flush=True)
-        tool = tool_map.get(tool_name)
-        result = tool(**arguments) if tool else "Unknown tool: " + tool_name
-        results.append(
-            {"role": "tool", "content": json.dumps(result), "tool_call_id": tool_call.id}
-        )
+        tool = tools_map.get(tool_name)
+        result = tool(**arguments) if tool else f"unknown tool: {tool_name}"
+        results.append([{"role": "tool", "content": json.dumps(result), "tool_call_id": tool_call.id}])
     return results
