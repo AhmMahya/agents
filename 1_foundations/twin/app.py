@@ -18,10 +18,7 @@ max_chat_history = 20
 
 def chat(model, messages):
 
-    if model == OpenRouter:
-        model_name = OpenRouter.model_name 
-    else:
-        model_name = Gemini.model_name
+    model_name = model.model_name
 
     response = model.client.chat.completions.create(model=model_name, messages=messages, tools=tools)
     finish_reason = response.choices[0].finish_reason
